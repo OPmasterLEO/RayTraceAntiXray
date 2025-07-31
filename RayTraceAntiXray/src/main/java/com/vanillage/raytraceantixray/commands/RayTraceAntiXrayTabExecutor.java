@@ -4,7 +4,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 
-import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
@@ -31,6 +30,9 @@ public final class RayTraceAntiXrayTabExecutor implements TabExecutor {
                 if (sender.hasPermission("raytraceantixray.command.raytraceantixray.timings") && "timings".startsWith(args[0].toLowerCase(Locale.ROOT))) {
                     completions.add("timings");
                 }
+                if (sender.hasPermission("raytraceantixray.reload") && "reload".startsWith(args[0].toLowerCase(Locale.ROOT))) {
+                    completions.add("reload");
+                }
             } else if (args[0].toLowerCase(Locale.ROOT).equals("timings")) {
                 if (sender.hasPermission("raytraceantixray.command.raytraceantixray.timings")) {
                     if (args.length == 2) {
@@ -53,36 +55,45 @@ public final class RayTraceAntiXrayTabExecutor implements TabExecutor {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().toLowerCase(Locale.ROOT).equals("raytraceantixray")) {
             if (args.length == 0) {
-
-            } else if (args[0].toLowerCase(Locale.ROOT).equals("timings")) {
+                // Handle base command if needed
+            } else if (args[0].equalsIgnoreCase("reload")) {
+                if (sender.hasPermission("raytraceantixray.reload")) {
+                    plugin.reload();
+                    sender.sendMessage("§aRayTraceAntiXray reloaded.");
+                    return true;
+                } else {
+                    sender.sendMessage("§cYou don't have permissions.");
+                    return true;
+                }
+            } else if (args[0].equalsIgnoreCase("timings")) {
                 if (sender.hasPermission("raytraceantixray.command.raytraceantixray.timings")) {
                     if (args.length == 1) {
-
-                    } else if (args[1].toLowerCase(Locale.ROOT).equals("on")) {
+                        // Handle timings command without arguments
+                    } else if (args[1].equalsIgnoreCase("on")) {
                         if (sender.hasPermission("raytraceantixray.command.raytraceantixray.timings.on")) {
                             if (args.length == 2) {
                                 plugin.setTimingsEnabled(true);
-                                sender.sendMessage("Timings turned on.");
+                                sender.sendMessage("§aTimings turned on.");
                                 return true;
                             }
                         } else {
-                            sender.sendMessage(ChatColor.RED + "You don't have permissions.");
+                            sender.sendMessage("§cYou don't have permissions.");
                             return true;
                         }
-                    } else if (args[1].toLowerCase(Locale.ROOT).equals("off")) {
+                    } else if (args[1].equalsIgnoreCase("off")) {
                         if (sender.hasPermission("raytraceantixray.command.raytraceantixray.timings.off")) {
                             if (args.length == 2) {
                                 plugin.setTimingsEnabled(false);
-                                sender.sendMessage("Timings turned off.");
+                                sender.sendMessage("§aTimings turned off.");
                                 return true;
                             }
                         } else {
-                            sender.sendMessage(ChatColor.RED + "You don't have permissions.");
+                            sender.sendMessage("§cYou don't have permissions.");
                             return true;
                         }
                     }
                 } else {
-                    sender.sendMessage(ChatColor.RED + "You don't have permissions.");
+                    sender.sendMessage("§cYou don't have permissions.");
                     return true;
                 }
             }

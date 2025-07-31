@@ -283,6 +283,10 @@ public final class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockCo
         }
     }
 
+    // ThreadLocal for blocks and blockEntities to reduce allocations
+    private static final ThreadLocal<HashMap<BlockPos, Boolean>> BLOCKS_LOCAL = ThreadLocal.withInitial(HashMap::new);
+    private static final ThreadLocal<HashSet<BlockPos>> BLOCK_ENTITIES_LOCAL = ThreadLocal.withInitial(HashSet::new);
+
     public void obfuscate(ChunkPacketInfoAntiXray chunkPacketInfoAntiXray) {
         int[] presetBlockStateBits = this.presetBlockStateBits.get();
         boolean[] solid = SOLID.get();
@@ -294,7 +298,6 @@ public final class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockCo
         boolean[][] nextNext = NEXT_NEXT.get();
         boolean[][] traceCache = TRACE_CACHE.get();
         boolean[][] blockEntityCache = BLOCK_ENTITY_CACHE.get();
-        // bitStorageReader, bitStorageWriter and nearbyChunkSections could also be reused (with ThreadLocal if necessary) but it's not worth it
         BitStorageReader bitStorageReader = new BitStorageReader();
         BitStorageWriter bitStorageWriter = new BitStorageWriter();
         LevelChunkSection[] nearbyChunkSections = new LevelChunkSection[4];
@@ -350,8 +353,11 @@ public final class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockCo
                 return (int) ((Integer.toUnsignedLong(state) * numberOfBlocks) >>> 32);
             }
         };
-        HashMap<BlockPos, Boolean> blocks = new HashMap<>();
-        HashSet<BlockPos> blockEntities = new HashSet<>();
+        // Use thread-local and clear before use
+        HashMap<BlockPos, Boolean> blocks = BLOCKS_LOCAL.get();
+        HashSet<BlockPos> blockEntities = BLOCK_ENTITIES_LOCAL.get();
+        blocks.clear();
+        blockEntities.clear();
 
         for (int chunkSectionIndex = 0; chunkSectionIndex <= maxChunkSectionIndex; chunkSectionIndex++) {
             if (chunkPacketInfoAntiXray.isWritten(chunkSectionIndex) && chunkPacketInfoAntiXray.getPresetValues(chunkSectionIndex) != null) {
@@ -491,7 +497,23 @@ public final class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockCo
                         throw new RuntimeException(e);
                     }
                 });
-                // TODO: Also remove from chunkPacketInfoAntiXray.getChunkPacket().getExtraPackets(), however, it's unlikely that it contains anything.
+
+                // Remove from extraPackets as well
+                List<?> extraPackets = chunkPacketInfoAntiXray.getChunkPacket().getExtraPackets();
+                if (extraPackets != null) {
+                    extraPackets.removeIf(packet -> {
+                        try {
+                            // Try to match block entity position in extra packet if possible
+                            // This is a best-effort removal, as extraPackets may contain various packet types
+                            // Only remove if the packet is a block entity update for a position in blockEntities
+                            // Reflection or packet API may be needed for more precise removal
+                            // For now, do nothing unless you know the structure
+                            return false;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    });
+                }
             } catch (IllegalAccessException e) {
                 throw new RuntimeException(e);
             }

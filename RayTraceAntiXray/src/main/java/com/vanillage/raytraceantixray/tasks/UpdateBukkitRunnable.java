@@ -1,6 +1,7 @@
 package com.vanillage.raytraceantixray.tasks;
 
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 
@@ -57,7 +58,9 @@ public final class UpdateBukkitRunnable extends BukkitRunnable implements Consum
     }
 
     public void update(Player player) {
-        PlayerData playerData = plugin.getPlayerData().get(player.getUniqueId());
+        // Cache UUID to avoid repeated getUniqueId() calls
+        final UUID playerUUID = player.getUniqueId();
+        PlayerData playerData = plugin.getPlayerData().get(playerUUID);
 
         if (!plugin.validatePlayerData(player, playerData, "update")) {
             return;
@@ -78,18 +81,17 @@ public final class UpdateBukkitRunnable extends BukkitRunnable implements Consum
         while ((result = results.poll()) != null) {
             ChunkBlocks chunkBlocks = result.getChunkBlocks();
 
+            // Cache chunk key to avoid recomputation
+            LongWrapper chunkKey = chunkBlocks.getKey();
+
             // Check if the client still has the chunk loaded and if it wasn't resent in the meantime.
-            // Note that even if this check passes, the server could have already unloaded or resent the chunk but the corresponding packet is still in the packet queue.
-            // Technically the null check isn't necessary but we don't need to send an update packet because the client will unload the chunk.
-            if (chunkBlocks.getChunk() == null || chunks.get(chunkBlocks.getKey()) != chunkBlocks) {
+            if (chunkBlocks.getChunk() == null || chunks.get(chunkKey) != chunkBlocks) {
                 continue;
             }
 
             BlockPos block = result.getBlock();
 
-            // Similar to the null check above, this check isn't actually necessary.
-            // However, we don't need to send an update packet because the client will unload the chunk.
-            // Thus we can avoid loading the chunk just for the update packet.
+            // Avoid loading the chunk just for the update packet.
             if (!world.isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)) {
                 continue;
             }
@@ -113,10 +115,7 @@ public final class UpdateBukkitRunnable extends BukkitRunnable implements Consum
                 blockState = Blocks.STONE.defaultBlockState();
             }
 
-            // We can't send the packet normally (through the packet queue).
-            // We bypass the packet queue since our calculations are based on the packet state (not the server state) as seen by the packet listener.
-            // As described above, the packet queue could for example already contain a chunk unload packet.
-            // Thus we send our packet immediately before that.
+            // Send update packet immediately
             sendPacketImmediately(player, new ClientboundBlockUpdatePacket(block, blockState));
 
             if (blockEntity != null) {
@@ -146,3 +145,4 @@ public final class UpdateBukkitRunnable extends BukkitRunnable implements Consum
         return true;
     }
 }
+

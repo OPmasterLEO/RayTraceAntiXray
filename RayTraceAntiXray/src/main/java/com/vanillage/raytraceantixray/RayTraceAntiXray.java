@@ -20,7 +20,8 @@ import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 
-import com.comphenix.protocol.ProtocolLibrary;
+import com.github.retrooper.packetevents.PacketEvents;
+import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
 import com.google.common.base.Throwables;
 import com.google.common.collect.MapMaker;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -29,7 +30,6 @@ import com.vanillage.raytraceantixray.commands.RayTraceAntiXrayTabExecutor;
 import com.vanillage.raytraceantixray.data.ChunkBlocks;
 import com.vanillage.raytraceantixray.data.PlayerData;
 import com.vanillage.raytraceantixray.data.VectorialLocation;
-import com.vanillage.raytraceantixray.listeners.PacketListener;
 import com.vanillage.raytraceantixray.listeners.PlayerListener;
 import com.vanillage.raytraceantixray.listeners.WorldListener;
 import com.vanillage.raytraceantixray.tasks.RayTraceTimerTask;
@@ -95,10 +95,31 @@ public final class RayTraceAntiXray extends JavaPlugin {
         PluginManager pluginManager = getServer().getPluginManager();
         pluginManager.registerEvents(new WorldListener(this), this);
         pluginManager.registerEvents(new PlayerListener(this), this);
-        ProtocolLibrary.getProtocolManager().addPacketListener(new PacketListener(this));
+        // ProtocolLibrary.getProtocolManager().addPacketListener(new PacketListener(this));
         // registerCommands();
         getCommand("raytraceantixray").setExecutor(new RayTraceAntiXrayTabExecutor(this));
+        // Add command handler for reload
+        getCommand("raytraceantixray").setExecutor((sender, command, label, args) -> {
+            if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
+                if (!sender.hasPermission("raytraceantixray.reload")) {
+                    sender.sendMessage("§cYou do not have permission to reload RayTraceAntiXray.");
+                    return true;
+                }
+                reload();
+                sender.sendMessage("§aRayTraceAntiXray reloaded.");
+                return true;
+            }
+            // fallback to tab executor for other commands
+            return new RayTraceAntiXrayTabExecutor(this).onCommand(sender, command, label, args);
+        });
         getLogger().info(getPluginMeta().getDisplayName() + " enabled");
+
+        // Initialize PacketEvents
+        PacketEvents.setAPI(SpigotPacketEventsBuilder.build(this));
+        PacketEvents.getAPI().getSettings().reEncodeByDefault(false);
+        PacketEvents.getAPI().load();
+        PacketEvents.getAPI().init();
+        PacketEvents.getAPI().getEventManager().registerListener(new com.vanillage.raytraceantixray.listeners.PacketListener(this));
     }
 
     @Override
@@ -126,7 +147,8 @@ public final class RayTraceAntiXray extends JavaPlugin {
                             throwable = t;
                         } finally {
                             // Cleanup stuff.
-                            ProtocolLibrary.getProtocolManager().removePacketListeners(this);
+                            // ProtocolLibrary.getProtocolManager().removePacketListeners(this);
+                            PacketEvents.getAPI().terminate();
                         }
                     } catch (Throwable t) {
                         if (throwable == null) {
@@ -180,18 +202,26 @@ public final class RayTraceAntiXray extends JavaPlugin {
         getLogger().info(getPluginMeta().getDisplayName() + " disabled");
     }
 
-    /* public synchronized void onReload() {
+    public synchronized void reload() {
         Throwable throwable = null;
-
         try {
             try {
-                // Cleanup stuff.
+                // Cleanup
+                running = false;
+                timer.cancel();
+                executorService.shutdownNow();
+                try {
+                    executorService.awaitTermination(1000L, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+                packetChunkBlocksCache.clear();
+                playerData.clear();
+                // PacketEvents reload
+                PacketEvents.getAPI().terminate();
             } catch (Throwable t) {
                 throwable = t;
-            } finally {
-                if (throwable != null) {
-                    getServer().getPluginManager().disablePlugin(this);
-                }
             }
         } catch (Throwable t) {
             if (throwable == null) {
@@ -206,16 +236,31 @@ public final class RayTraceAntiXray extends JavaPlugin {
             }
         }
 
+        // Re-initialize
         saveDefaultConfig();
         reloadConfig();
         FileConfiguration config = getConfig();
         config.options().copyDefaults(true);
-        // Add defaults.
-        // saveConfig();
-        // configuration = config;
-        // Initialize stuff.
+
+        running = true;
+        executorService = Executors.newFixedThreadPool(Math.max(config.getInt("settings.anti-xray.ray-trace-threads"), 1), new ThreadFactoryBuilder().setThreadFactory(Executors.defaultThreadFactory()).setNameFormat("RayTraceAntiXray ray trace thread %d").setDaemon(true).build());
+        timer = new Timer("RayTraceAntiXray tick thread", true);
+        timer.schedule(new RayTraceTimerTask(this), 0L, Math.max(config.getLong("settings.anti-xray.ms-per-ray-trace-tick"), 1L));
+        updateTicks = Math.max(config.getLong("settings.anti-xray.update-ticks"), 1L);
+
+        if (!folia) {
+            new UpdateBukkitRunnable(this).runTaskTimer(this, 0L, updateTicks);
+        }
+
+        // PacketEvents re-init
+        PacketEvents.setAPI(SpigotPacketEventsBuilder.build(this));
+        PacketEvents.getAPI().getSettings().reEncodeByDefault(false);
+        PacketEvents.getAPI().load();
+        PacketEvents.getAPI().init();
+        PacketEvents.getAPI().getEventManager().registerListener(new com.vanillage.raytraceantixray.listeners.PacketListener(this));
+
         getLogger().info(getPluginMeta().getDisplayName() + " reloaded");
-    } */
+    }
 
     public boolean isFolia() {
         return folia;
@@ -267,10 +312,10 @@ public final class RayTraceAntiXray extends JavaPlugin {
     public boolean validatePlayerData(Player player, PlayerData playerData, String methodName) {
         if (playerData == null) {
             if (validatePlayer(player)) {
-                // TODO: More logic and logging will be added here once we support reloading.
+                // Reloading is now supported. If you see this message, please report it as a bug.
                 Logger logger = getLogger();
                 logger.warning("Missing player data detected for player " + player.getName() + " in method " + methodName);
-                logger.warning("Please note that reloading this plugin isn't yet supported");
+                logger.warning("Reloading is now supported. If you see this message, please report it as a bug.");
                 logger.warning("Also make sure you are using the correct plugin version for your Minecraft version");
                 logger.warning("Please restart your server");
                 // Let the caller fail hard to print a stack trace.
