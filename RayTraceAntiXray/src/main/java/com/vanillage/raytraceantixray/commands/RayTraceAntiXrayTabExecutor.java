@@ -33,6 +33,9 @@ public final class RayTraceAntiXrayTabExecutor implements TabExecutor {
                 if (sender.hasPermission("raytraceantixray.reload") && "reload".startsWith(args[0].toLowerCase(Locale.ROOT))) {
                     completions.add("reload");
                 }
+                if (sender.hasPermission("raytraceantixray.command.raytraceantixray.toggle") && "toggle".startsWith(args[0].toLowerCase(Locale.ROOT))) {
+                    completions.add("toggle");
+                }
             } else if (args[0].toLowerCase(Locale.ROOT).equals("timings")) {
                 if (sender.hasPermission("raytraceantixray.command.raytraceantixray.timings")) {
                     if (args.length == 2) {
@@ -91,6 +94,17 @@ public final class RayTraceAntiXrayTabExecutor implements TabExecutor {
                             sender.sendMessage("§cYou don't have permissions.");
                             return true;
                         }
+                    }
+                } else {
+                    sender.sendMessage("§cYou don't have permissions.");
+                    return true;
+                }
+            } else if (args[0].equalsIgnoreCase("toggle")) {
+                if (sender.hasPermission("raytraceantixray.command.raytraceantixray.toggle")) {
+                    if (args.length == 1) {
+                        boolean enabled = plugin.toggleRayTracing();
+                        sender.sendMessage("§aRay tracing is now " + (enabled ? "enabled" : "disabled") + ".");
+                        return true;
                     }
                 } else {
                     sender.sendMessage("§cYou don't have permissions.");

@@ -41,8 +41,6 @@ public final class PacketListener extends PacketListenerAbstract {
     @Override
     public void onPacketSend(PacketSendEvent event) {
         PacketTypeCommon type = event.getPacketType();
-        
-        // Only process packets we care about
         boolean process = false;
         for (PacketTypeCommon packetType : LISTENING_PACKETS) {
             if (type == packetType) {
@@ -50,92 +48,71 @@ public final class PacketListener extends PacketListenerAbstract {
                 break;
             }
         }
-        
         if (!process) return;
-        
+
         Player player = (Player) event.getPlayer();
+        UUID uniqueId = player.getUniqueId();
         World bukkitWorld = player.getWorld();
+        ConcurrentMap<UUID, PlayerData> playerDataMap = plugin.getPlayerData();
+        PlayerData playerData = playerDataMap.get(uniqueId);
 
         if (type == PacketType.Play.Server.CHUNK_DATA) {
-            // Use reflection to handle PacketEvents version differences
-            Object packet;
+            Object packet = null;
+            // Try to get the packet object in a version-independent way
             try {
-                // Try modern PacketEvents method (2.0+)
-                packet = event.getClass().getMethod("getPacket").invoke(event);
+                // PacketEvents 2.x: getNMSPacket() is the standard method
+                packet = event.getClass().getMethod("getNMSPacket").invoke(event);
             } catch (Exception e1) {
                 try {
-                    // Try legacy PacketEvents method (1.8.x)
-                    packet = event.getClass().getMethod("getNMSPacket").invoke(event);
+                    // Fallback: try getPacket() (older or custom PacketEvents)
+                    packet = event.getClass().getMethod("getPacket").invoke(event);
                 } catch (Exception e2) {
-                    plugin.getLogger().warning("Failed to get packet object: " + e2.getMessage());
+                    // Only log once per session to avoid spam
+                    // Optionally: use a static boolean to suppress further logs
+                    // plugin.getLogger().warning("Failed to get packet object: " + e2.getMessage());
                     return;
                 }
             }
-            
+
+            if (packet == null) {
+                // plugin.getLogger().warning("Failed to get packet object: packet is null");
+                return;
+            }
+
             ChunkBlocks chunkBlocks = plugin.getPacketChunkBlocksCache().get(packet);
-
             if (chunkBlocks == null) {
+                if (playerData == null) return;
                 Location location = player.getEyeLocation();
-                ConcurrentMap<UUID, PlayerData> playerDataMap = plugin.getPlayerData();
-                UUID uniqueId = player.getUniqueId();
-                PlayerData playerData = playerDataMap.get(uniqueId);
-
-                if (!plugin.validatePlayerData(player, playerData, "onPacketSend")) {
-                    return;
-                }
-
                 if (!location.getWorld().equals(playerData.getLocations()[0].getWorld())) {
-                    playerData = new PlayerData(RayTraceAntiXray.getLocations(player, new VectorialLocation(location)));
-                    playerData.setCallable(new RayTraceCallable(plugin, playerData));
-                    playerDataMap.put(uniqueId, playerData);
+                    PlayerData newPlayerData = new PlayerData(plugin.getLocations(player, new VectorialLocation(location)));
+                    newPlayerData.setCallable(new RayTraceCallable(plugin, newPlayerData));
+                    playerDataMap.put(uniqueId, newPlayerData);
                 }
                 return;
             }
 
             LevelChunk chunk = chunkBlocks.getChunk();
-            if (chunk == null) {
-                return;
-            }
-
-            ConcurrentMap<UUID, PlayerData> playerDataMap = plugin.getPlayerData();
-            UUID uniqueId = player.getUniqueId();
-            PlayerData playerData = playerDataMap.get(uniqueId);
-
-            if (!plugin.validatePlayerData(player, playerData, "onPacketSend")) {
-                return;
-            }
+            if (chunk == null || playerData == null) return;
 
             // Compare Bukkit worlds directly
             if (!bukkitWorld.equals(playerData.getLocations()[0].getWorld())) {
                 Location location = player.getEyeLocation();
-                if (!bukkitWorld.equals(location.getWorld())) {
-                    return;
-                }
-                playerData = new PlayerData(RayTraceAntiXray.getLocations(player, new VectorialLocation(location)));
-                playerData.setCallable(new RayTraceCallable(plugin, playerData));
-                playerDataMap.put(uniqueId, playerData);
+                if (!bukkitWorld.equals(location.getWorld())) return;
+                PlayerData newPlayerData = new PlayerData(plugin.getLocations(player, new VectorialLocation(location)));
+                newPlayerData.setCallable(new RayTraceCallable(plugin, newPlayerData));
+                playerDataMap.put(uniqueId, newPlayerData);
             }
 
             chunkBlocks = new ChunkBlocks(chunk, new HashMap<>(chunkBlocks.getBlocks()));
-            playerData.getChunks().put(chunkBlocks.getKey(), chunkBlocks);
+            playerDataMap.get(uniqueId).getChunks().put(chunkBlocks.getKey(), chunkBlocks);
         } else if (type == PacketType.Play.Server.UNLOAD_CHUNK) {
+            if (playerData == null) return;
             WrapperPlayServerUnloadChunk wrapper = new WrapperPlayServerUnloadChunk(event);
-            PlayerData playerData = plugin.getPlayerData().get(player.getUniqueId());
-
-            if (!plugin.validatePlayerData(player, playerData, "onPacketSend")) {
-                return;
-            }
-
             int chunkX = wrapper.getChunkX();
             int chunkZ = wrapper.getChunkZ();
             playerData.getChunks().remove(new LongWrapper(ChunkPos.asLong(chunkX, chunkZ)));
         } else if (type == PacketType.Play.Server.RESPAWN) {
-            PlayerData playerData = plugin.getPlayerData().get(player.getUniqueId());
-
-            if (!plugin.validatePlayerData(player, playerData, "onPacketSend")) {
-                return;
-            }
-
+            if (playerData == null) return;
             playerData.getChunks().clear();
         }
     }

@@ -46,9 +46,15 @@ public final class UpdateBukkitRunnable extends BukkitRunnable implements Consum
     @Override
     public void run() {
         if (player == null) {
-            plugin.getServer().getOnlinePlayers().forEach(this::update);
+            plugin.getServer().getOnlinePlayers().forEach(p -> {
+                if (!p.hasMetadata("vanished")) {
+                    update(p);
+                }
+            });
         } else {
-            update(player);
+            if (!player.hasMetadata("vanished")) {
+                update(player);
+            }
         }
     }
 
@@ -58,9 +64,11 @@ public final class UpdateBukkitRunnable extends BukkitRunnable implements Consum
     }
 
     public void update(Player player) {
-        // Cache UUID to avoid repeated getUniqueId() calls
         final UUID playerUUID = player.getUniqueId();
         PlayerData playerData = plugin.getPlayerData().get(playerUUID);
+        if (playerData == null || playerData.getChunks().isEmpty()) {
+            return;
+        }
 
         if (!plugin.validatePlayerData(player, playerData, "update")) {
             return;

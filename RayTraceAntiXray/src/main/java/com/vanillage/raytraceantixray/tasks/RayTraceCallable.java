@@ -251,112 +251,99 @@ public final class RayTraceCallable implements Callable<Void> {
             return;
         }
 
-        ConcurrentMap<LongWrapper, ChunkBlocks> chunks = playerData.getChunks();
         VectorialLocation[] locations = playerData.getLocations();
         Vector playerVector = locations[0].getVector();
         double playerX = playerVector.getX();
         double playerY = playerVector.getY();
         double playerZ = playerVector.getZ();
-        playerVector.setX(playerX - rayTraceDistance);
-        playerVector.setZ(playerZ - rayTraceDistance);
-        int chunkXMin = playerVector.getBlockX() >> 4;
-        int chunkZMin = playerVector.getBlockZ() >> 4;
-        playerVector.setX(playerX + rayTraceDistance);
-        playerVector.setZ(playerZ + rayTraceDistance);
-        int chunkXMax = playerVector.getBlockX() >> 4;
-        int chunkZMax = playerVector.getBlockZ() >> 4;
-        playerVector.setX(playerX);
-        playerVector.setZ(playerZ);
+        double rayTraceDistance = this.rayTraceDistance;
+        double rayTraceDistanceSquared = this.rayTraceDistanceSquared;
+        double rehideDistanceSquared = this.rehideDistanceSquared;
+        boolean rehideBlocks = this.rehideBlocks;
+
+        // Precompute chunk bounds for fast filtering
+        int chunkXMin = ((int) playerX - (int) rayTraceDistance) >> 4;
+        int chunkXMax = ((int) playerX + (int) rayTraceDistance) >> 4;
+        int chunkZMin = ((int) playerZ - (int) rayTraceDistance) >> 4;
+        int chunkZMax = ((int) playerZ + (int) rayTraceDistance) >> 4;
+
         Queue<Result> results = playerData.getResults();
 
-        for (ChunkBlocks chunkBlocks : this.chunks) {
+        // Process each chunk in player's visible chunks
+        for (ChunkBlocks chunkBlocks : chunks) {
             LevelChunk chunk = chunkBlocks.getChunk();
-
-            if (chunk == null) {
-                chunks.remove(chunkBlocks.getKey(), chunkBlocks);
-                continue;
-            }
+            if (chunk == null) continue;
 
             ChunkPos chunkPos = chunk.getPos();
             int chunkX = chunkPos.x;
-
-            if (chunkX < chunkXMin || chunkX > chunkXMax) {
-                continue;
-            }
-
             int chunkZ = chunkPos.z;
 
-            if (chunkZ < chunkZMin || chunkZ > chunkZMax) {
+            // Skip chunks outside precomputed bounds
+            if (chunkX < chunkXMin || chunkX > chunkXMax || chunkZ < chunkZMin || chunkZ > chunkZMax) {
                 continue;
             }
 
+            // Use iterator for safe removal during processing
             Iterator<Entry<BlockPos, Boolean>> iterator = chunkBlocks.getBlocks().entrySet().iterator();
-
             while (iterator.hasNext()) {
-                Entry<BlockPos, Boolean> blockHidden = iterator.next();
-                BlockPos block = blockHidden.getKey();
-                int x = block.getX();
-                int y = block.getY();
-                int z = block.getZ();
-                double centerX = x + 0.5;
-                double centerY = y + 0.5;
-                double centerZ = z + 0.5;
-                double differenceX = playerX - centerX;
-                double differenceY = playerY - centerY;
-                double differenceZ = playerZ - centerZ;
-                double distanceSquared = differenceX * differenceX + differenceY * differenceY + differenceZ * differenceZ;
+                Entry<BlockPos, Boolean> entry = iterator.next();
+                BlockPos block = entry.getKey();
+                boolean hidden = entry.getValue();
 
-                if (!(distanceSquared <= rayTraceDistanceSquared)) {
-                    continue;
-                }
+                // Fast distance check without sqrt
+                double dx = playerX - (block.getX() + 0.5);
+                double dy = playerY - (block.getY() + 0.5);
+                double dz = playerZ - (block.getZ() + 0.5);
+                double distSq = dx * dx + dy * dy + dz * dz;
+
+                // Skip blocks beyond ray trace distance
+                if (distSq > rayTraceDistanceSquared) continue;
 
                 boolean visible = false;
-
-                if (distanceSquared < rehideDistanceSquared) {
-                    int sectionY = y >> 4;
-
+                if (distSq < rehideDistanceSquared) {
+                    int sectionY = block.getY() >> 4;
                     for (int i = 0; i < locations.length; i++) {
                         VectorialLocation location = locations[i];
                         Vector direction = location.getDirection();
                         double directionX = direction.getX();
                         double directionY = direction.getY();
                         double directionZ = direction.getZ();
+
+                        // Initialize cache for current section
                         cachedSectionBlockOcclusionGetter.initializeCache(chunk, chunkX, sectionY, chunkZ);
 
+                        double vx, vy, vz, vdistSq;
                         if (i == 0) {
-                            if (blockOcclusionCulling.isVisible(x, y, z, centerX, centerY, centerZ, differenceX, differenceY, differenceZ, distanceSquared, directionX, directionY, directionZ)) {
-                                visible = true;
-                                break;
-                            }
+                            vx = dx; vy = dy; vz = dz; vdistSq = distSq;
                         } else {
-                            Vector vector = location.getVector();
-                            double vectorDifferenceX = vector.getX() - centerX;
-                            double vectorDifferenceY = vector.getY() - centerY;
-                            double vectorDifferenceZ = vector.getZ() - centerZ;
+                            Vector vec = location.getVector();
+                            vx = vec.getX() - (block.getX() + 0.5);
+                            vy = vec.getY() - (block.getY() + 0.5);
+                            vz = vec.getZ() - (block.getZ() + 0.5);
+                            vdistSq = vx * vx + vy * vy + vz * vz;
+                        }
 
-                            if (blockOcclusionCulling.isVisible(x, y, z, centerX, centerY, centerZ, vectorDifferenceX, vectorDifferenceY, vectorDifferenceZ, vectorDifferenceX * vectorDifferenceX + vectorDifferenceY * vectorDifferenceY + vectorDifferenceZ * vectorDifferenceZ, directionX, directionY, directionZ)) {
-                                visible = true;
-                                break;
-                            }
+                        if (blockOcclusionCulling.isVisible(
+                                block.getX(), block.getY(), block.getZ(),
+                                block.getX() + 0.5, block.getY() + 0.5, block.getZ() + 0.5,
+                                vx, vy, vz, vdistSq, directionX, directionY, directionZ)) {
+                            visible = true;
+                            break;
                         }
                     }
                 }
 
-                boolean hidden = blockHidden.getValue();
-
-                if (visible) {
-                    if (hidden) {
-                        results.add(new Result(chunkBlocks, block, true));
-
-                        if (rehideBlocks) {
-                            blockHidden.setValue(false);
-                        } else {
-                            iterator.remove();
-                        }
+                // Handle visibility state changes
+                if (visible && hidden) {
+                    results.add(new Result(chunkBlocks, block, true));
+                    if (rehideBlocks) {
+                        entry.setValue(false);
+                    } else {
+                        iterator.remove();
                     }
-                } else if (!hidden) {
+                } else if (!visible && !hidden) {
                     results.add(new Result(chunkBlocks, block, false));
-                    blockHidden.setValue(true);
+                    entry.setValue(true);
                 }
             }
         }
@@ -365,23 +352,15 @@ public final class RayTraceCallable implements Callable<Void> {
     }
 
     private static BlockState getBlockState(LevelChunkSection section, int x, int y, int z) {
-        // synchronized (section.getStates()) {
-        //     try {
-        //         section.getStates().acquire();
-                try {
-                    return section.getBlockState(x & 15, y & 15, z & 15);
-                } catch (MissingPaletteEntryException e) {
-                    return AIR;
-                }
-        //     } finally {
-        //         section.getStates().release();
-        //     }
-        // }
+        try {
+            return section.getBlockState(x & 15, y & 15, z & 15);
+        } catch (MissingPaletteEntryException e) {
+            return AIR;
+        }
     }
 
     private interface CachedSectionBlockOcclusionGetter extends BlockOcclusionGetter {
         void initializeCache(LevelChunk chunk, int chunkX, int sectionY, int chunkZ);
-
         void clearCache();
     }
 }

@@ -34,16 +34,57 @@
 
 settings:
   anti-xray:
-    update-ticks: 1
+    update-ticks: 20
     ms-per-ray-trace-tick: 50
-    ray-trace-threads: 2
+    # Adjust to available (ideally unused) CPU threads.
+    ray-trace-threads: 1
 world-settings:
   default:
     anti-xray:
       ray-trace: true
-      ray-trace-third-person: false
+      # Be aware that this is about three times as resource intensive.
+      ray-trace-third-person: true
       ray-trace-distance: 80.0
-      rehide-blocks: false
-      rehide-distance: .inf
-      max-ray-trace-block-count-per-chunk: 100
-      ray-trace-blocks: []
+      rehide-blocks: true
+      rehide-distance: 76.0
+      max-ray-trace-block-count-per-chunk: 60
+      ray-trace-blocks:
+      - ancient_debris
+      - nether_quartz_ore
+      - nether_gold_ore
+      - copper_ore
+      - deepslate_copper_ore
+      - raw_copper_block
+      - gold_ore
+      - deepslate_gold_ore
+      - iron_ore
+      - deepslate_iron_ore
+      - raw_iron_block
+      - coal_ore
+      - deepslate_coal_ore
+      - lapis_ore
+      - deepslate_lapis_ore
+      - mossy_cobblestone
+      - obsidian
+      - chest
+      - diamond_ore
+      - deepslate_diamond_ore
+      - redstone_ore
+      - deepslate_redstone_ore
+      - clay
+      - emerald_ore
+      - deepslate_emerald_ore
+      - ender_chest
+      - piston
+      - sticky_piston
+      - hopper
+  # Adjust world name.
+  world_nether:
+    anti-xray:
+      # Note that ancient_debris never generates naturally exposed to air.
+      # Normal engine-mode: 1 is sufficient, disable ray tracing in the nether.
+      ray-trace: false
+  # Adjust world name.
+  world_the_end:
+    anti-xray:
+      ray-trace: false

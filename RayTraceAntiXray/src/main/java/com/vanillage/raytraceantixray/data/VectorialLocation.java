@@ -39,4 +39,9 @@ public final class VectorialLocation {
     public Vector getDirection() {
         return direction;
     }
+
+    public void set(VectorialLocation other) {
+        this.vector.copy(other.vector);
+        this.direction.copy(other.direction);
+    }
 }

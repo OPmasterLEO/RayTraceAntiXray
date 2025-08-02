@@ -26,14 +26,12 @@ public final class PlayerListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-
-        if (!plugin.validatePlayer(player)) {
-            return;
-        }
-
-        PlayerData playerData = new PlayerData(RayTraceAntiXray.getLocations(player, new VectorialLocation(player.getEyeLocation())));
-        playerData.setCallable(new RayTraceCallable(plugin, playerData));
-        plugin.getPlayerData().put(player.getUniqueId(), playerData);
+        if (!plugin.validatePlayer(player)) return;
+        plugin.getPlayerData().computeIfAbsent(player.getUniqueId(), uuid -> {
+            PlayerData pd = new PlayerData(plugin.getLocations(player, new VectorialLocation(player.getEyeLocation())));
+            pd.setCallable(new RayTraceCallable(plugin, pd));
+            return pd;
+        });
 
         if (plugin.isFolia()) {
             player.getScheduler().runAtFixedRate(plugin, new UpdateBukkitRunnable(plugin, player), null, 1L, plugin.getUpdateTicks());
@@ -49,18 +47,14 @@ public final class PlayerListener implements Listener {
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
         PlayerData playerData = plugin.getPlayerData().get(player.getUniqueId());
-
-        if (!plugin.validatePlayerData(player, playerData, "onPlayerMove")) {
-            return;
-        }
+        if (playerData == null || !plugin.validatePlayerData(player, playerData, "onPlayerMove")) return;
 
         Location to = event.getTo();
+        if (to == null || !to.getWorld().equals(playerData.getLocations()[0].getWorld())) return;
 
-        if (to.getWorld().equals(playerData.getLocations()[0].getWorld())) {
-            VectorialLocation location = new VectorialLocation(to);
-            Vector vector = location.getVector();
-            vector.setY(vector.getY() + player.getEyeHeight());
-            playerData.setLocations(RayTraceAntiXray.getLocations(player, location));
-        }
+        VectorialLocation location = new VectorialLocation(to);
+        Vector vector = location.getVector();
+        vector.setY(vector.getY() + player.getEyeHeight());
+        playerData.setLocations(plugin.getLocations(player, location));
     }
 }
